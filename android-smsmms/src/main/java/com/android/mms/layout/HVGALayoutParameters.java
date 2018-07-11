@@ -16,8 +16,9 @@
 
 package com.android.mms.layout;
 
-import android.content.Context;
 import com.android.mms.logs.LogTag;
+
+import android.content.Context;
 import com.klinker.android.logger.Log;
 
 public class HVGALayoutParameters implements LayoutParameters {

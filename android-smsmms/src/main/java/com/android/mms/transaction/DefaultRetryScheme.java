@@ -16,9 +16,10 @@
 
 package com.android.mms.transaction;
 
+import com.android.mms.logs.LogTag;
+
 import android.content.Context;
 import android.util.Config;
-import com.android.mms.logs.LogTag;
 import com.klinker.android.logger.Log;
 
 /**

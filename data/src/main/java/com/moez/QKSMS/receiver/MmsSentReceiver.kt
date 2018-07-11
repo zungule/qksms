@@ -19,31 +19,35 @@
 package com.moez.QKSMS.receiver
 
 import android.app.Activity
-import android.content.BroadcastReceiver
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.database.sqlite.SqliteWrapper
 import android.net.Uri
 import android.provider.Telephony
 import com.google.android.mms.MmsException
-import com.google.android.mms.util_alt.SqliteWrapper
-import com.klinker.android.send_message.Transaction
+import com.klinker.android.send_message.MmsSentReceiver
+import com.klinker.android.send_message.StatusUpdatedReceiver
 import com.moez.QKSMS.interactor.SyncMessage
 import dagger.android.AndroidInjection
 import timber.log.Timber
 import java.io.File
 import javax.inject.Inject
 
-class MmsSentReceiver : BroadcastReceiver() {
+/**
+ * The [MmsSentReceiver] bundled in the android-smsmms library doesn't support marking messages
+ * as failed, so we use this class instead
+ */
+class MmsSentReceiver : StatusUpdatedReceiver() {
 
     @Inject lateinit var syncMessage: SyncMessage
 
-    override fun onReceive(context: Context, intent: Intent) {
+    override fun updateInInternalDatabase(context: Context, intent: Intent, resultCode: Int) {
         AndroidInjection.inject(this, context)
 
         Timber.v("MMS sending result: $resultCode")
-        val uri = Uri.parse(intent.getStringExtra(Transaction.EXTRA_CONTENT_URI))
+        val uri = Uri.parse(intent.getStringExtra(MmsSentReceiver.EXTRA_CONTENT_URI))
         Timber.v(uri.toString())
 
         when (resultCode) {
@@ -78,14 +82,14 @@ class MmsSentReceiver : BroadcastReceiver() {
             }
         }
 
-        val filePath = intent.getStringExtra(Transaction.EXTRA_FILE_PATH)
+        val filePath = intent.getStringExtra(MmsSentReceiver.EXTRA_FILE_PATH)
         Timber.v(filePath)
         File(filePath).delete()
+    }
 
-        Uri.parse(intent.getStringExtra("content_uri"))?.let { uri ->
-            val pendingResult = goAsync()
-            syncMessage.execute(uri) { pendingResult.finish() }
-        }
+    override fun onMessageStatusUpdated(context: Context, intent: Intent, resultCode: Int) {
+        val uri = Uri.parse(intent.getStringExtra(MmsSentReceiver.EXTRA_CONTENT_URI))
+        syncMessage.buildObservable(uri).blockingSubscribe()
     }
 
 }

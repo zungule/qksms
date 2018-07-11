@@ -20,13 +20,15 @@ import android.content.Context;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
-import android.net.NetworkInfo;
 import android.net.NetworkRequest;
+import android.net.NetworkInfo;
 import android.net.SSLCertificateSocketFactory;
 import android.os.Build;
 import android.os.SystemClock;
-import com.android.mms.service_alt.exception.MmsNetworkException;
+
 import com.klinker.android.logger.Log;
+
+import com.android.mms.service_alt.exception.MmsNetworkException;
 import com.squareup.okhttp.ConnectionPool;
 
 import java.net.InetAddress;

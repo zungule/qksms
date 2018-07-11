@@ -22,9 +22,8 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
 import android.net.Uri;
-import android.widget.Toast;
 import com.klinker.android.logger.Log;
-import org.jetbrains.annotations.Nullable;
+import android.widget.Toast;
 
 /**
  * @hide
@@ -53,7 +52,6 @@ public final class SqliteWrapper {
         }
     }
 
-    @Nullable
     public static Cursor query(Context context, ContentResolver resolver, Uri uri,
                                String[] projection, String selection, String[] selectionArgs, String sortOrder) {
         try {
@@ -62,6 +60,17 @@ public final class SqliteWrapper {
             Log.e(TAG, "Catch a SQLiteException when query: ", e);
             checkSQLiteException(context, e);
             return null;
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    public static boolean requery(Context context, Cursor cursor) {
+        try {
+            return cursor.requery();
+        } catch (SQLiteException e) {
+            Log.e(TAG, "Catch a SQLiteException when requery: ", e);
+            checkSQLiteException(context, e);
+            return false;
         }
     }
 

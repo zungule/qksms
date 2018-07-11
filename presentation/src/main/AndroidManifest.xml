@@ -103,7 +103,7 @@
         </receiver>
         <receiver
             android:name=".receiver.MmsSentReceiver"
-            android:taskAffinity="com.moez.QKSMS.MMS_SENT" />
+            android:taskAffinity="com.klinker.android.messaging.MMS_SENT" />
         <receiver
             android:name=".receiver.MmsUpdatedReceiver"
             android:taskAffinity="com.moez.QKSMS.MMS_UPDATED" />

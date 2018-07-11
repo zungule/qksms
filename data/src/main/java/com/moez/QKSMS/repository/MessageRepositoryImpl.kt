@@ -29,8 +29,8 @@ import android.os.Build
 import android.provider.Telephony
 import android.telephony.SmsManager
 import com.google.android.mms.ContentType
-import com.google.android.mms.MMSPart
 import com.klinker.android.send_message.BroadcastUtils
+import com.klinker.android.send_message.Settings
 import com.klinker.android.send_message.SmsManagerFactory
 import com.klinker.android.send_message.StripAccents
 import com.klinker.android.send_message.Transaction
@@ -222,25 +222,25 @@ class MessageRepositoryImpl @Inject constructor(
                 sendSms(message)
             }
         } else { // MMS
-            val parts = arrayListOf<MMSPart>()
+            val message = com.klinker.android.send_message.Message(null, addresses.toTypedArray())
 
             if (body.isNotBlank()) {
-                parts += MMSPart("text", ContentType.TEXT_PLAIN, body.toByteArray())
+                message.addMedia(body.toByteArray(), ContentType.TEXT_PLAIN, "text")
             }
 
             // Add the GIFs as attachments. The app currently can't compress them, which may result
             // in a lot of these messages failing to send
             // TODO Add support for GIF compression
-            parts += attachments
+            attachments
                     .filter { attachment -> attachment.isGif(context) }
                     .map { attachment -> attachment.getUri() }
                     .map { uri -> context.contentResolver.openInputStream(uri) }
                     .map { inputStream -> inputStream.readBytes() }
-                    .map { bitmap -> MMSPart("image", ContentType.IMAGE_GIF, bitmap) }
+                    .forEach { bitmap -> message.addMedia(bitmap, ContentType.IMAGE_GIF, "image") }
 
             // Compress the images and add them as attachments
             var totalImageBytes = 0
-            parts += attachments
+            attachments
                     .filter { attachment -> !attachment.isGif(context) }
                     .mapNotNull { attachment -> attachment.getUri() }
                     .mapNotNull { uri -> tryOrNull { imageRepository.loadImage(uri) } }
@@ -249,11 +249,14 @@ class MessageRepositoryImpl @Inject constructor(
                         val byteRatio = bitmap.allocationByteCount / totalImageBytes.toFloat()
                         compress(bitmap, (prefs.mmsSize.get() * 1024 * byteRatio).toInt())
                     }
-                    .map { bitmap -> MMSPart("image", ContentType.IMAGE_JPEG, bitmap) }
+                    .forEach { bitmap -> message.addMedia(bitmap, ContentType.IMAGE_JPEG, "image") }
 
+            val settings = Settings().apply {
+                subscriptionId = subId
+            }
 
-            val transaction = Transaction(context)
-            transaction.sendNewMessage(subId, threadId, addresses, parts, null)
+            val transaction = Transaction(context, settings)
+            transaction.sendNewMessage(message, threadId)
         }
     }
 

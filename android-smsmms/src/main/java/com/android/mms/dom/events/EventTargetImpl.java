@@ -17,13 +17,15 @@
 package com.android.mms.dom.events;
 
 import com.android.mms.logs.LogTag;
-import com.klinker.android.logger.Log;
+
+import java.util.ArrayList;
+
 import org.w3c.dom.events.Event;
 import org.w3c.dom.events.EventException;
 import org.w3c.dom.events.EventListener;
 import org.w3c.dom.events.EventTarget;
 
-import java.util.ArrayList;
+import com.klinker.android.logger.Log;
 
 public class EventTargetImpl implements EventTarget {
     private static final String TAG = LogTag.TAG;

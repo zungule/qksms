@@ -21,15 +21,18 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.AsyncTask;
+import android.os.Build;
 import android.provider.Telephony;
 import android.telephony.SmsManager;
 import android.util.Log;
+
 import com.android.mms.service_alt.DownloadRequest;
 import com.android.mms.service_alt.MmsConfig;
 import com.android.mms.transaction.DownloadManager;
 import com.android.mms.transaction.HttpUtils;
 import com.android.mms.transaction.TransactionSettings;
 import com.android.mms.util.SendingProgressTokenManager;
+import com.google.android.mms.InvalidHeaderValueException;
 import com.google.android.mms.MmsException;
 import com.google.android.mms.pdu_alt.EncodedStringValue;
 import com.google.android.mms.pdu_alt.GenericPdu;
@@ -53,7 +56,7 @@ import java.util.concurrent.Executors;
 
 import static com.google.android.mms.pdu_alt.PduHeaders.STATUS_RETRIEVED;
 
-public class MmsReceivedReceiver extends BroadcastReceiver {
+public abstract class MmsReceivedReceiver extends BroadcastReceiver {
     private static final String TAG = "MmsReceivedReceiver";
 
     public static final String MMS_RECEIVED = "com.klinker.android.messaging.MMS_RECEIVED";
@@ -67,6 +70,9 @@ public class MmsReceivedReceiver extends BroadcastReceiver {
 
     private static final ExecutorService RECEIVE_NOTIFICATION_EXECUTOR = Executors.newSingleThreadExecutor();
 
+    public abstract void onMessageReceived(Context context, Uri messageUri);
+    public abstract void onError(Context context, String error);
+
     public MmscInformation getMmscInfoForReceptionAck() {
         // Override this and provide the MMSC to send the ACK to.
         // some carriers will download duplicate MMS messages without this ACK. When using the
@@ -78,90 +84,90 @@ public class MmsReceivedReceiver extends BroadcastReceiver {
     }
 
     @Override
-    public void onReceive(Context context, Intent intent) {
+    public final void onReceive(final Context context, final Intent intent) {
         Log.v(TAG, "MMS has finished downloading, persisting it to the database");
 
-        String path = intent.getStringExtra(EXTRA_FILE_PATH);
+        final String path = intent.getStringExtra(EXTRA_FILE_PATH);
         Log.v(TAG, path);
 
-        FileInputStream reader = null;
-        Uri messageUri = null;
-        String errorMessage = null;
+        final PendingResult result = goAsync();
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                FileInputStream reader = null;
+                Uri messageUri = null;
+                String errorMessage = null;
 
-        try {
-            File mDownloadFile = new File(path);
-            final int nBytes = (int) mDownloadFile.length();
-            reader = new FileInputStream(mDownloadFile);
-            final byte[] response = new byte[nBytes];
-            reader.read(response, 0, nBytes);
-
-            List<CommonAsyncTask> tasks = getNotificationTask(context, intent, response);
-
-            messageUri = DownloadRequest.persist(context, response,
-                    new MmsConfig.Overridden(new MmsConfig(context), null),
-                    intent.getStringExtra(EXTRA_LOCATION_URL),
-                    Utils.getDefaultSubscriptionId(), null);
-
-            Log.v(TAG, "response saved successfully");
-            Log.v(TAG, "response length: " + response.length);
-            mDownloadFile.delete();
-
-            if (tasks != null) {
-                Log.v(TAG, "running the common async notifier for download");
-                for (CommonAsyncTask task : tasks)
-                    task.executeOnExecutor(RECEIVE_NOTIFICATION_EXECUTOR);
-            }
-        } catch (FileNotFoundException e) {
-            errorMessage = "MMS received, file not found exception";
-            Log.e(TAG, errorMessage, e);
-        } catch (IOException e) {
-            errorMessage = "MMS received, io exception";
-            Log.e(TAG, errorMessage, e);
-        } finally {
-            if (reader != null) {
                 try {
-                    reader.close();
+                    File mDownloadFile = new File(path);
+                    final int nBytes = (int) mDownloadFile.length();
+                    reader = new FileInputStream(mDownloadFile);
+                    final byte[] response = new byte[nBytes];
+                    reader.read(response, 0, nBytes);
+
+                    List<CommonAsyncTask> tasks = getNotificationTask(context, intent, response);
+
+                    messageUri = DownloadRequest.persist(context, response,
+                            new MmsConfig.Overridden(new MmsConfig(context), null),
+                            intent.getStringExtra(EXTRA_LOCATION_URL),
+                            Utils.getDefaultSubscriptionId(), null);
+
+                    Log.v(TAG, "response saved successfully");
+                    Log.v(TAG, "response length: " + response.length);
+                    mDownloadFile.delete();
+
+                    if (tasks != null) {
+                        Log.v(TAG, "running the common async notifier for download");
+                        for (CommonAsyncTask task : tasks)
+                            task.executeOnExecutor(RECEIVE_NOTIFICATION_EXECUTOR);
+                    }
+                } catch (FileNotFoundException e) {
+                    errorMessage = "MMS received, file not found exception";
+                    Log.e(TAG, errorMessage, e);
                 } catch (IOException e) {
                     errorMessage = "MMS received, io exception";
-                    Log.e(TAG, "MMS received, io exception", e);
+                    Log.e(TAG, errorMessage, e);
+                } finally {
+                    if (reader != null) {
+                        try {
+                            reader.close();
+                        } catch (IOException e) {
+                            errorMessage = "MMS received, io exception";
+                            Log.e(TAG, "MMS received, io exception", e);
+                        }
+                    }
                 }
+
+                handleHttpError(context, intent);
+                DownloadManager.finishDownload(intent.getStringExtra(EXTRA_LOCATION_URL));
+
+                if (messageUri != null) {
+                    onMessageReceived(context, messageUri);
+                }
+
+                if (errorMessage != null) {
+                    onError(context, errorMessage);
+                }
+
+                result.finish();
             }
-        }
-
-        handleHttpError(context, intent);
-        DownloadManager.finishDownload(intent.getStringExtra(EXTRA_LOCATION_URL));
-
-        if (messageUri != null) {
-            onMessageReceived(messageUri);
-        }
-
-        if (errorMessage != null) {
-            onError(errorMessage);
-        }
-    }
-
-    protected void onMessageReceived(Uri messageUri) {
-        // Override this in a custom receiver, if you want access to the message, outside of the
-        // internal SMS/MMS database
-    }
-
-    protected void onError(String error) {
-
+        }).start();
     }
 
     private void handleHttpError(Context context, Intent intent) {
-        final int httpError = intent.getIntExtra(SmsManager.EXTRA_MMS_HTTP_STATUS, 0);
-        if (httpError == 404 ||
-                httpError == 400) {
-            // Delete the corresponding NotificationInd
-            SqliteWrapper.delete(context,
-                    context.getContentResolver(),
-                    Telephony.Mms.CONTENT_URI,
-                    LOCATION_SELECTION,
-                    new String[]{
-                            Integer.toString(PduHeaders.MESSAGE_TYPE_NOTIFICATION_IND),
-                            intent.getStringExtra(EXTRA_LOCATION_URL)
-                    });
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+            final int httpError = intent.getIntExtra(SmsManager.EXTRA_MMS_HTTP_STATUS, 0);
+            if (httpError == 404 || httpError == 400) {
+                // Delete the corresponding NotificationInd
+                SqliteWrapper.delete(context,
+                        context.getContentResolver(),
+                        Telephony.Mms.CONTENT_URI,
+                        LOCATION_SELECTION,
+                        new String[]{
+                                Integer.toString(PduHeaders.MESSAGE_TYPE_NOTIFICATION_IND),
+                                intent.getStringExtra(EXTRA_LOCATION_URL)
+                        });
+            }
         }
     }
 
@@ -261,7 +267,7 @@ public class MmsReceivedReceiver extends BroadcastReceiver {
         @Override
         protected Void doInBackground(Void... params) {
             // Create the M-NotifyResp.ind
-            NotifyRespInd notifyRespInd;
+            NotifyRespInd notifyRespInd = null;
             try {
                 notifyRespInd = new NotifyRespInd(
                         PduHeaders.CURRENT_MMS_VERSION,
@@ -274,7 +280,9 @@ public class MmsReceivedReceiver extends BroadcastReceiver {
                 } else {
                     sendPdu(new PduComposer(mContext, notifyRespInd).make());
                 }
-            } catch (MmsException | IOException e) {
+            } catch (MmsException e) {
+                Log.e(TAG, "error", e);
+            } catch (IOException e) {
                 Log.e(TAG, "error", e);
             }
             return null;
@@ -298,7 +306,7 @@ public class MmsReceivedReceiver extends BroadcastReceiver {
             if (tranId != null) {
                 Log.v(TAG, "sending ACK to MMSC: " + mTransactionSettings.getMmscUrl());
                 // Create M-Acknowledge.ind
-                com.google.android.mms.pdu_alt.AcknowledgeInd acknowledgeInd;
+                com.google.android.mms.pdu_alt.AcknowledgeInd acknowledgeInd = null;
 
                 try {
                     acknowledgeInd = new com.google.android.mms.pdu_alt.AcknowledgeInd(
@@ -306,7 +314,12 @@ public class MmsReceivedReceiver extends BroadcastReceiver {
 
                     // insert the 'from' address per spec
                     String lineNumber = Utils.getMyPhoneNumber(mContext);
-                    acknowledgeInd.setFrom(new EncodedStringValue(lineNumber));
+
+                    if (lineNumber != null) {
+                        acknowledgeInd.setFrom(new EncodedStringValue(lineNumber));
+                    } else {
+                        acknowledgeInd.setFrom(new EncodedStringValue(""));
+                    }
 
                     // Pack M-Acknowledge.ind and send it
                     if(com.android.mms.MmsConfig.getNotifyWapMMSC()) {
@@ -314,7 +327,11 @@ public class MmsReceivedReceiver extends BroadcastReceiver {
                     } else {
                         sendPdu(new PduComposer(mContext, acknowledgeInd).make());
                     }
-                } catch (IOException | MmsException e) {
+                } catch (InvalidHeaderValueException e) {
+                    Log.e(TAG, "error", e);
+                } catch (MmsException e) {
+                    Log.e(TAG, "error", e);
+                } catch (IOException e) {
                     Log.e(TAG, "error", e);
                 }
             }
